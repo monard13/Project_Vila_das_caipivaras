@@ -1,0 +1,6 @@
+{
+  "name": "Vila Capivaras — Idea A · Rediseño 3D",
+  "description": "Visualización conceptual 3D de Vila Capivaras: paseo comercial-gastronómico, gimnasio con rooftop fitness y flats frente a la Lagoa das Capivaras, Búzios (RJ).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
