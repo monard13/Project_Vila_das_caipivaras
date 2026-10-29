@@ -1,5 +1,10 @@
 import React from 'react';
 import type { ViewPresetName } from '../utils/cameraMath';
+import {
+  PROJECT_RENDERS,
+  getRenderById,
+  type ProjectRenderId,
+} from '../utils/projectRenders';
 
 export interface HudOverlayProps {
   activeView: ViewPresetName | null;
@@ -7,6 +12,8 @@ export interface HudOverlayProps {
   showLabels: boolean;
   bloomEnabled: boolean;
   soundMuted: boolean;
+  selectedRenderId: ProjectRenderId | null;
+  renderCompareMode: boolean;
   hintVisible: boolean;
   loaderState: 'visible' | 'fading' | 'hidden';
   hudCollapsed: boolean;
@@ -16,6 +23,9 @@ export interface HudOverlayProps {
   onToggleLabels: () => void;
   onToggleBloom: () => void;
   onToggleSound: () => void;
+  onSelectRender: (id: ProjectRenderId | null) => void;
+  onCycleRender: (dir: 'prev' | 'next') => void;
+  onToggleRenderCompareMode: () => void;
   onExportPng: () => void;
   onToggleFullscreen: () => void;
   onToggleHudCollapsed: () => void;
@@ -27,6 +37,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   showLabels,
   bloomEnabled,
   soundMuted,
+  selectedRenderId,
+  renderCompareMode,
   hintVisible,
   loaderState,
   hudCollapsed,
@@ -36,40 +48,77 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onToggleLabels,
   onToggleBloom,
   onToggleSound,
+  onSelectRender,
+  onCycleRender,
+  onToggleRenderCompareMode,
   onExportPng,
   onToggleFullscreen,
   onToggleHudCollapsed,
 }) => {
+  const activeRender = selectedRenderId ? getRenderById(selectedRenderId) : null;
+
   return (
     <>
       {!hudCollapsed && (
-        <header className="vc-card" aria-label="Ficha del proyecto Vila Capivaras">
-          <div className="vc-eyebrow">Idea A · Rediseño — render conceptual 3D</div>
-          <h1>Vila Capivaras</h1>
-          <div className="vc-sub">
-            Paseo comercial-gastronómico · gym + rooftop · flats — Lagoa das Capivaras, Búzios (RJ)
-          </div>
-          <div className="vc-chips">
-            <span className="vc-chip">
-              ≈ <b>4.648 m²</b> · Lotes 4–9, Quadra C
-            </span>
-            <span className="vc-chip">
-              Acceso único <b>frente a la laguna</b>
-            </span>
-            <span className="vc-chip">
-              PB <b>~1.200 m²</b> comercial
-            </span>
-            <span className="vc-chip">
-              P2 fondo: <b>gym ≈220 m²</b> + rooftop
-            </span>
-            <span className="vc-chip">
-              PA <b>6–8 flats</b> · terrazas
-            </span>
-            <span className="vc-chip">
-              <b>~60–70</b> plazas parking
-            </span>
-          </div>
-        </header>
+        <div className="vc-left-stack">
+          <header className="vc-card" aria-label="Ficha del proyecto Vila Capivaras">
+            <div className="vc-eyebrow">Idea A · Rediseño — render conceptual 3D</div>
+            <h1>Vila Capivaras</h1>
+            <div className="vc-sub">
+              Paseo comercial-gastronómico · gym + rooftop · flats — Lagoa das Capivaras, Búzios (RJ)
+            </div>
+            <div className="vc-chips">
+              <span className="vc-chip">
+                ≈ <b>4.648 m²</b> · Lotes 4–9, Quadra C
+              </span>
+              <span className="vc-chip">
+                Acceso único <b>frente a la laguna</b>
+              </span>
+              <span className="vc-chip">
+                PB <b>~1.200 m²</b> comercial
+              </span>
+              <span className="vc-chip">
+                P2 fondo: <b>gym ≈220 m²</b> + rooftop
+              </span>
+              <span className="vc-chip">
+                PA <b>6–8 flats</b> · terrazas
+              </span>
+              <span className="vc-chip">
+                <b>~60–70</b> plazas parking
+              </span>
+            </div>
+          </header>
+
+          <section
+            id="vc-renders-dock"
+            className="vc-renders-dock"
+            aria-label="Renders fotorrealistas integrados en la maqueta"
+          >
+            <div className="vc-renders-dock-head">
+              <span>🖼️ Renders Fotorrealistas ({PROJECT_RENDERS.length})</span>
+              <span className="vc-renders-dock-sub">Clic para ver y alinear 3D</span>
+            </div>
+            <div className="vc-renders-grid">
+              {PROJECT_RENDERS.map((item) => {
+                const isSelected = selectedRenderId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`render-thumb-${item.id}`}
+                    type="button"
+                    data-render-id={item.id}
+                    className={`vc-render-thumb ${isSelected ? 'active' : ''}`}
+                    onClick={() => onSelectRender(isSelected ? null : item.id)}
+                    title={`${item.title} — Clic para visualizar`}
+                  >
+                    <img src={item.imageUrl} alt={item.title} loading="eager" />
+                    <span className="vc-render-thumb-label">{item.shortLabel}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
       )}
 
       <nav className="vc-controls" aria-label="Controles de cámara y escena">
@@ -79,6 +128,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 id="v-aerea"
                 type="button"
+                data-view="aerea"
                 className={activeView === 'aerea' ? 'on' : ''}
                 title="Vista aérea"
                 onClick={() => onSelectView('aerea')}
@@ -88,6 +138,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 id="v-paseo"
                 type="button"
+                data-view="paseo"
                 className={activeView === 'paseo' ? 'on' : ''}
                 title="A nivel de peatón dentro del paseo"
                 onClick={() => onSelectView('paseo')}
@@ -97,6 +148,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 id="v-laguna"
                 type="button"
+                data-view="laguna"
                 className={activeView === 'laguna' ? 'on' : ''}
                 title="Desde la Lagoa das Capivaras"
                 onClick={() => onSelectView('laguna')}
@@ -106,6 +158,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 id="v-rooftop"
                 type="button"
+                data-view="rooftop"
                 className={activeView === 'rooftop' ? 'on' : ''}
                 title="Rooftop fitness sobre el gimnasio"
                 onClick={() => onSelectView('rooftop')}
@@ -115,6 +168,18 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </div>
 
             <div className="vc-group" role="group" aria-label="Opciones de visualización">
+              <button
+                id="b-renders"
+                type="button"
+                className={selectedRenderId !== null ? 'on' : ''}
+                title="Abrir galería de renders fotorrealistas (tecla R)"
+                aria-pressed={selectedRenderId !== null}
+                onClick={() =>
+                  onSelectRender(selectedRenderId !== null ? null : 'lagoa')
+                }
+              >
+                🖼️ Renders ({PROJECT_RENDERS.length})
+              </button>
               <button
                 id="b-sunset"
                 type="button"
@@ -211,6 +276,101 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         )}
       </nav>
 
+      {activeRender && (
+        <aside
+          id="vc-render-modal"
+          data-testid="render-viewer-modal"
+          data-render-id={activeRender.id}
+          className={`vc-render-modal ${renderCompareMode ? 'compare' : 'expanded'}`}
+          aria-label={`Visor de render: ${activeRender.title}`}
+        >
+          <div className="vc-render-panel">
+            <div className="vc-render-header">
+              <div>
+                <div className="vc-render-eyebrow">
+                  RENDER FOTORREALISTA · VISTA SINCRONIZADA CON MAQUETA 3D
+                </div>
+                <h2 className="vc-render-title">{activeRender.title}</h2>
+                <p className="vc-render-subtitle">{activeRender.subtitle}</p>
+              </div>
+              <div className="vc-render-actions">
+                <button
+                  id="b-render-compare"
+                  type="button"
+                  className="vc-render-btn"
+                  onClick={onToggleRenderCompareMode}
+                  title="Alternar entre vista ampliada y comparación lado a lado con la maqueta 3D"
+                >
+                  {renderCompareMode ? '🔍 Ampliar render' : '📐 Comparar con 3D'}
+                </button>
+                <button
+                  id="b-render-sync-cam"
+                  type="button"
+                  className="vc-render-btn gold"
+                  onClick={() => onSelectView(activeRender.cameraView)}
+                  title="Mover la cámara 3D exactamente a este ángulo"
+                >
+                  📍 Ver ángulo en 3D
+                </button>
+                <button
+                  id="b-render-close"
+                  type="button"
+                  className="vc-render-close"
+                  onClick={() => onSelectRender(null)}
+                  aria-label="Cerrar visor de renders"
+                  title="Cerrar visor (Esc)"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="vc-render-stage">
+              <button
+                id="b-render-prev"
+                type="button"
+                className="vc-render-nav prev"
+                onClick={() => onCycleRender('prev')}
+                aria-label="Render anterior"
+                title="Render anterior"
+              >
+                ◀
+              </button>
+              <img
+                src={activeRender.imageUrl}
+                alt={activeRender.title}
+                className="vc-render-main-img"
+              />
+              <button
+                id="b-render-next"
+                type="button"
+                className="vc-render-nav next"
+                onClick={() => onCycleRender('next')}
+                aria-label="Siguiente render"
+                title="Siguiente render"
+              >
+                ▶
+              </button>
+            </div>
+
+            <div className="vc-render-strip">
+              {PROJECT_RENDERS.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  data-strip-render={r.id}
+                  className={`vc-render-strip-item ${r.id === activeRender.id ? 'active' : ''}`}
+                  onClick={() => onSelectRender(r.id)}
+                >
+                  <img src={r.imageUrl} alt={r.shortLabel} />
+                  <span>{r.shortLabel}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+      )}
+
       <div className="vc-compass" aria-hidden="true">
         <div className="vc-needle" id="needle" ref={needleRef} />
       </div>
@@ -221,7 +381,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           id="hint"
           style={{ opacity: hintVisible ? 1 : 0 }}
         >
-          Arrastra para orbitar · rueda / pellizco para zoom · clic derecho para desplazar
+          Arrastra para orbitar · rueda / pellizco para zoom · clic en tótems 📷 o miniaturas para ver renders
         </div>
       )}
 

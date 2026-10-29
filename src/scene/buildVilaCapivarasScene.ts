@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { PROJECT_RENDERS } from '../utils/projectRenders';
 
 export const PALETTE = {
   oceano: 0x0e3a53,
@@ -30,6 +31,7 @@ export interface VilaCapivarasSceneController {
   scene: THREE.Scene;
   waterTex: THREE.CanvasTexture;
   labelGroup: THREE.Group;
+  renderBoardsGroup: THREE.Group;
   setDaytime: (evening: boolean) => void;
   dispose: () => void;
 }
@@ -48,6 +50,7 @@ function createSeededRandom(seed = 19830429): () => number {
 export function buildVilaCapivarasScene(
   renderer: THREE.WebGLRenderer,
   isSoftwareGl: boolean,
+  onTextureLoaded?: () => void,
 ): VilaCapivarasSceneController {
   const rng = createSeededRandom(20261029);
   const scene = new THREE.Scene();
@@ -1848,6 +1851,93 @@ export function buildVilaCapivarasScene(
   makeLabel('Vegetación nativa', 'ref. Termo IBDF 1983', -37.2, 9, 22.2, 4.2, 0.9);
   makeLabel('Av. José Bento Ribeiro Dantas', '(Estrada da Usina)', -58, 5.4, -33.5, 0.1, 0.85);
 
+  /* ---------- Tótems fotográficos 3D de los renders reales ---------- */
+  const renderBoardsGroup = new THREE.Group();
+  scene.add(renderBoardsGroup);
+  const texLoader = new THREE.TextureLoader();
+  const goldTrimMat = mat(PALETTE.dorado, 0.35, 0.45);
+  const renderBoardMaterials: THREE.MeshStandardMaterial[] = [];
+
+  PROJECT_RENDERS.forEach((item) => {
+    const boardGroup = new THREE.Group();
+    const bw = 3.0;
+    const bh = 2.0;
+
+    // Pedestal columns + dark architectural frame + gold accent trim
+    const postL = box(0.1, 1.1, 0.1, steelMat, -bw * 0.38, -bh * 0.5 - 0.5, 0, false);
+    const postR = box(0.1, 1.1, 0.1, steelMat, bw * 0.38, -bh * 0.5 - 0.5, 0, false);
+    const frameBox = box(bw + 0.2, bh + 0.2, 0.12, frameMat, 0, 0, 0, false);
+    const goldBorder = box(bw + 0.28, bh + 0.28, 0.08, goldTrimMat, 0, 0, 0, false);
+    boardGroup.add(postL, postR, goldBorder, frameBox);
+
+    const tex = texLoader.load(item.imageUrl, () => {
+      onTextureLoaded?.();
+    });
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = maxAnisotropy;
+    createdTextures.push(tex);
+
+    const photoMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.35,
+      metalness: 0.05,
+      color: 0xffffff,
+      emissive: 0xffffff,
+      emissiveMap: tex,
+      emissiveIntensity: 0.16,
+    });
+    renderBoardMaterials.push(photoMat);
+
+    const frontFace = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), photoMat);
+    frontFace.position.set(0, 0, 0.085);
+    frontFace.userData = { renderId: item.id };
+    boardGroup.add(frontFace);
+
+    const backFace = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), photoMat);
+    backFace.position.set(0, 0, -0.085);
+    backFace.rotation.y = Math.PI;
+    backFace.userData = { renderId: item.id };
+    boardGroup.add(backFace);
+
+    frameBox.userData = { renderId: item.id };
+    goldBorder.userData = { renderId: item.id };
+
+    // Floating camera badge above the 3D render board
+    const badgeCanvas = document.createElement('canvas');
+    badgeCanvas.width = 480;
+    badgeCanvas.height = 92;
+    const bctx = badgeCanvas.getContext('2d')!;
+    bctx.fillStyle = 'rgba(14, 58, 83, 0.96)';
+    bctx.beginPath();
+    bctx.roundRect(4, 4, 472, 84, 42);
+    bctx.fill();
+    bctx.strokeStyle = '#D9A441';
+    bctx.lineWidth = 5;
+    bctx.stroke();
+    bctx.fillStyle = '#D9A441';
+    bctx.font = '700 32px Calibri, sans-serif';
+    bctx.textAlign = 'center';
+    bctx.textBaseline = 'middle';
+    bctx.fillText(`📷 Render: ${item.shortLabel}`, 240, 48);
+
+    const badgeTex = new THREE.CanvasTexture(badgeCanvas);
+    badgeTex.colorSpace = THREE.SRGBColorSpace;
+    createdTextures.push(badgeTex);
+
+    const badgeSprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: badgeTex, depthTest: true, transparent: true }),
+    );
+    badgeSprite.scale.set(3.8, 0.74, 1);
+    badgeSprite.position.set(0, bh * 0.5 + 0.65, 0);
+    badgeSprite.userData = { renderId: item.id };
+    boardGroup.add(badgeSprite);
+
+    boardGroup.position.set(item.hotspotPos.x, item.hotspotPos.y, item.hotspotPos.z);
+    boardGroup.rotation.y = item.rotationY;
+    boardGroup.userData = { renderId: item.id };
+    renderBoardsGroup.add(boardGroup);
+  });
+
   // Warm architectural point lights along the paseo and entrance for sunset glow
   const paseoWarmLights: THREE.PointLight[] = [
     new THREE.PointLight(0xffb866, 0, 22, 1.8),
@@ -1885,6 +1975,9 @@ export function buildVilaCapivarasScene(
       signGlows.forEach((m) => {
         m.emissiveIntensity = 0.55;
       });
+      renderBoardMaterials.forEach((m) => {
+        m.emissiveIntensity = 0.55;
+      });
       lampHeads.forEach((h) => {
         h.material.emissiveIntensity = 3.5;
       });
@@ -1918,6 +2011,9 @@ export function buildVilaCapivarasScene(
       signGlows.forEach((m) => {
         m.emissiveIntensity = 0.18;
       });
+      renderBoardMaterials.forEach((m) => {
+        m.emissiveIntensity = 0.16;
+      });
       lampHeads.forEach((h) => {
         h.material.emissiveIntensity = 1.25;
       });
@@ -1949,6 +2045,7 @@ export function buildVilaCapivarasScene(
     scene,
     waterTex,
     labelGroup,
+    renderBoardsGroup,
     setDaytime,
     dispose,
   };

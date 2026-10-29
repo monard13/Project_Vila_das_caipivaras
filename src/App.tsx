@@ -17,6 +17,12 @@ import {
 import { AmbientSoundscape } from './utils/ambientSound';
 import { computeBloomParams } from './utils/bloomConfig';
 import {
+  getRenderById,
+  getNextRenderId,
+  getPrevRenderId,
+  type ProjectRenderId,
+} from './utils/projectRenders';
+import {
   CAMERA_VIEWS,
   computeCompassDegrees,
   easeInOutCubic,
@@ -59,12 +65,15 @@ export default function App() {
   const syncRenderRef = useRef<(() => void) | null>(null);
   const bloomEnabledRef = useRef(true);
   const sunsetRef = useRef(false);
+  const selectedRenderIdRef = useRef<ProjectRenderId | null>(null);
 
   const [activeView, setActiveView] = useState<ViewPresetName | null>('aerea');
   const [sunset, setSunset] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [bloomEnabled, setBloomEnabled] = useState(true);
   const [soundMuted, setSoundMuted] = useState(false);
+  const [selectedRenderId, setSelectedRenderId] = useState<ProjectRenderId | null>(null);
+  const [renderCompareMode, setRenderCompareMode] = useState(false);
   const [hintVisible, setHintVisible] = useState(true);
   const [hudCollapsed, setHudCollapsed] = useState(false);
   const [loaderState, setLoaderState] = useState<'visible' | 'fading' | 'hidden'>(() => {
@@ -98,6 +107,76 @@ export default function App() {
     to: CAMERA_VIEWS.aerea,
   });
 
+  const handleSelectView = useCallback((name: ViewPresetName) => {
+    const v = CAMERA_VIEWS[name];
+    const ctl = ctlRef.current;
+    const fromTheta = ctl.theta;
+    const toTheta = shortestAngleTarget(fromTheta, v.theta);
+
+    if (isSoftwareGl) {
+      ctl.radius = v.radius;
+      ctl.phi = v.phi;
+      ctl.theta = toTheta;
+      ctl.target = { ...v.target };
+      ctl.dTheta = 0;
+      ctl.dPhi = 0;
+      ctl.dRad = 0;
+      tweenRef.current.active = false;
+      ctl.auto = false;
+      setActiveView(name);
+      syncRenderRef.current?.();
+      return;
+    }
+
+    tweenRef.current = {
+      active: true,
+      t: 0,
+      dur: 1.35,
+      from: {
+        radius: ctl.radius,
+        phi: ctl.phi,
+        theta: fromTheta,
+        target: { ...ctl.target },
+      },
+      to: {
+        radius: v.radius,
+        phi: v.phi,
+        theta: toTheta,
+        target: { ...v.target },
+      },
+    };
+    ctl.auto = false;
+    setActiveView(name);
+  }, []);
+
+  const handleSelectRender = useCallback(
+    (id: ProjectRenderId | null) => {
+      selectedRenderIdRef.current = id;
+      setSelectedRenderId(id);
+      if (id !== null) {
+        const item = getRenderById(id);
+        handleSelectView(item.cameraView);
+      } else {
+        syncRenderRef.current?.();
+      }
+    },
+    [handleSelectView],
+  );
+
+  const handleCycleRender = useCallback(
+    (dir: 'prev' | 'next') => {
+      const current = selectedRenderIdRef.current ?? 'lagoa';
+      const nextId =
+        dir === 'next' ? getNextRenderId(current) : getPrevRenderId(current);
+      handleSelectRender(nextId);
+    },
+    [handleSelectRender],
+  );
+
+  const handleToggleRenderCompareMode = useCallback(() => {
+    setRenderCompareMode((prev) => !prev);
+  }, []);
+
   useEffect(() => {
     const soundscape = new AmbientSoundscape();
     soundscapeRef.current = soundscape;
@@ -128,7 +207,7 @@ export default function App() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    renderer.toneMappingExposure = 1.06;
 
     stage.innerHTML = '';
     stage.appendChild(renderer.domElement);
@@ -142,7 +221,9 @@ export default function App() {
     );
     cameraRef.current = camera;
 
-    const sceneCtrl = buildVilaCapivarasScene(renderer, isSoftwareGl);
+    const sceneCtrl = buildVilaCapivarasScene(renderer, isSoftwareGl, () => {
+      syncRenderRef.current?.();
+    });
     sceneCtrlRef.current = sceneCtrl;
     sceneCtrl.setDaytime(false);
 
@@ -178,6 +259,8 @@ export default function App() {
     const _dir = new THREE.Vector3();
     const _right = new THREE.Vector3();
     const _up = new THREE.Vector3();
+    const raycaster = new THREE.Raycaster();
+    const pointerNdc = new THREE.Vector2();
 
     function applyCamera() {
       const pos = stepOrbitCamera(ctlRef.current);
@@ -228,7 +311,10 @@ export default function App() {
       ctlRef.current.target.z += -dx * k * _right.z + dy * k * _up.z;
     }
 
-    const pointers = new Map<number, { x: number; y: number; btn: number }>();
+    const pointers = new Map<
+      number,
+      { x: number; y: number; startX: number; startY: number; btn: number }
+    >();
     let lastPinch = 0;
     const el = renderer.domElement;
     el.style.touchAction = 'none';
@@ -240,7 +326,13 @@ export default function App() {
       } catch {
         // Ignore synthetic events without active pointerId
       }
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, btn: e.button });
+      pointers.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+        startX: e.clientX,
+        startY: e.clientY,
+        btn: e.button,
+      });
       ctlRef.current.auto = false;
       tweenRef.current.active = false;
     };
@@ -271,8 +363,35 @@ export default function App() {
     };
 
     const endPointer = (e: PointerEvent) => {
+      const p = pointers.get(e.pointerId);
       pointers.delete(e.pointerId);
       if (pointers.size < 2) lastPinch = 0;
+
+      // Check for click on a 3D render board totem
+      if (p && p.btn === 0) {
+        const moved = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+        if (moved < 6) {
+          const rect = el.getBoundingClientRect();
+          pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+          raycaster.setFromCamera(pointerNdc, camera);
+          const hits = raycaster.intersectObjects(
+            sceneCtrl.renderBoardsGroup.children,
+            true,
+          );
+          if (hits.length > 0) {
+            let obj: THREE.Object3D | null = hits[0].object;
+            while (obj) {
+              const rId = obj.userData?.renderId as ProjectRenderId | undefined;
+              if (rId) {
+                handleSelectRender(rId);
+                break;
+              }
+              obj = obj.parent;
+            }
+          }
+        }
+      }
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -283,7 +402,12 @@ export default function App() {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'h' || e.key === 'H') {
+      if (e.key === 'Escape' && selectedRenderIdRef.current !== null) {
+        handleSelectRender(null);
+      } else if (e.key === 'r' || e.key === 'R') {
+        const nextR = selectedRenderIdRef.current !== null ? null : 'lagoa';
+        handleSelectRender(nextR);
+      } else if (e.key === 'h' || e.key === 'H') {
         setHudCollapsed((prev) => !prev);
       } else if (e.key === 'b' || e.key === 'B') {
         const nextBloom = !bloomEnabledRef.current;
@@ -432,49 +556,7 @@ export default function App() {
       sceneCtrl.dispose();
       renderer.dispose();
     };
-  }, []);
-
-  const handleSelectView = useCallback((name: ViewPresetName) => {
-    const v = CAMERA_VIEWS[name];
-    const ctl = ctlRef.current;
-    const fromTheta = ctl.theta;
-    const toTheta = shortestAngleTarget(fromTheta, v.theta);
-
-    if (isSoftwareGl) {
-      ctl.radius = v.radius;
-      ctl.phi = v.phi;
-      ctl.theta = toTheta;
-      ctl.target = { ...v.target };
-      ctl.dTheta = 0;
-      ctl.dPhi = 0;
-      ctl.dRad = 0;
-      tweenRef.current.active = false;
-      ctl.auto = false;
-      setActiveView(name);
-      syncRenderRef.current?.();
-      return;
-    }
-
-    tweenRef.current = {
-      active: true,
-      t: 0,
-      dur: 1.35,
-      from: {
-        radius: ctl.radius,
-        phi: ctl.phi,
-        theta: fromTheta,
-        target: { ...ctl.target },
-      },
-      to: {
-        radius: v.radius,
-        phi: v.phi,
-        theta: toTheta,
-        target: { ...v.target },
-      },
-    };
-    ctl.auto = false;
-    setActiveView(name);
-  }, []);
+  }, [handleSelectRender]);
 
   const handleToggleSunset = useCallback(() => {
     const next = !sunsetRef.current;
@@ -572,6 +654,8 @@ export default function App() {
       }
       data-labels={showLabels ? 'on' : 'off'}
       data-sound={soundMuted ? 'muted' : 'on'}
+      data-selected-render={selectedRenderId ?? 'none'}
+      data-render-mode={renderCompareMode ? 'compare' : 'expanded'}
     >
       <div id="stage" ref={stageRef} data-testid="webgl-stage" />
       <HudOverlay
@@ -580,6 +664,8 @@ export default function App() {
         showLabels={showLabels}
         bloomEnabled={bloomEnabled}
         soundMuted={soundMuted}
+        selectedRenderId={selectedRenderId}
+        renderCompareMode={renderCompareMode}
         hintVisible={hintVisible}
         loaderState={loaderState}
         hudCollapsed={hudCollapsed}
@@ -589,6 +675,9 @@ export default function App() {
         onToggleLabels={handleToggleLabels}
         onToggleBloom={handleToggleBloom}
         onToggleSound={handleToggleSound}
+        onSelectRender={handleSelectRender}
+        onCycleRender={handleCycleRender}
+        onToggleRenderCompareMode={handleToggleRenderCompareMode}
         onExportPng={handleExportPng}
         onToggleFullscreen={handleToggleFullscreen}
         onToggleHudCollapsed={handleToggleHudCollapsed}
