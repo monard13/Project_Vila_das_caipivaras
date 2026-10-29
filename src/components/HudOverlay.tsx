@@ -283,45 +283,56 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           data-render-id={activeRender.id}
           className={`vc-render-modal ${renderCompareMode ? 'compare' : 'expanded'}`}
           aria-label={`Visor de render: ${activeRender.title}`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              onSelectRender(null);
+            }
+          }}
         >
           <div className="vc-render-panel">
             <div className="vc-render-header">
-              <div>
+              <div className="vc-render-top-row">
                 <div className="vc-render-eyebrow">
-                  RENDER FOTORREALISTA · VISTA SINCRONIZADA CON MAQUETA 3D
+                  RENDER FOTORREALISTA · VISTA SINCRONIZADA 3D
                 </div>
+                <div className="vc-render-actions">
+                  <button
+                    id="b-render-compare"
+                    type="button"
+                    className="vc-render-btn"
+                    onClick={onToggleRenderCompareMode}
+                    title="Alternar entre vista ampliada y comparación con la maqueta 3D"
+                  >
+                    {renderCompareMode ? '🔍 Ampliar' : '📐 Comparar 3D'}
+                  </button>
+                  <button
+                    id="b-render-sync-cam"
+                    type="button"
+                    className="vc-render-btn gold"
+                    onClick={() => {
+                      onSelectView(activeRender.cameraView);
+                      onSelectRender(null);
+                    }}
+                    title="Cerrar el render y ver este ángulo en el diseño 3D"
+                  >
+                    📍 Ver en 3D
+                  </button>
+                  <button
+                    id="b-render-close"
+                    type="button"
+                    className="vc-render-close"
+                    onClick={() => onSelectRender(null)}
+                    aria-label="Cerrar y volver al diseño 3D"
+                    title="Cerrar y volver al diseño 3D (Esc)"
+                  >
+                    ✕ Cerrar
+                  </button>
+                </div>
+              </div>
+
+              <div className="vc-render-text-block">
                 <h2 className="vc-render-title">{activeRender.title}</h2>
                 <p className="vc-render-subtitle">{activeRender.subtitle}</p>
-              </div>
-              <div className="vc-render-actions">
-                <button
-                  id="b-render-compare"
-                  type="button"
-                  className="vc-render-btn"
-                  onClick={onToggleRenderCompareMode}
-                  title="Alternar entre vista ampliada y comparación lado a lado con la maqueta 3D"
-                >
-                  {renderCompareMode ? '🔍 Ampliar render' : '📐 Comparar con 3D'}
-                </button>
-                <button
-                  id="b-render-sync-cam"
-                  type="button"
-                  className="vc-render-btn gold"
-                  onClick={() => onSelectView(activeRender.cameraView)}
-                  title="Mover la cámara 3D exactamente a este ángulo"
-                >
-                  📍 Ver ángulo en 3D
-                </button>
-                <button
-                  id="b-render-close"
-                  type="button"
-                  className="vc-render-close"
-                  onClick={() => onSelectRender(null)}
-                  aria-label="Cerrar visor de renders"
-                  title="Cerrar visor (Esc)"
-                >
-                  ✕
-                </button>
               </div>
             </div>
 
@@ -366,6 +377,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   <span>{r.shortLabel}</span>
                 </button>
               ))}
+            </div>
+
+            <div className="vc-render-mobile-footer">
+              <button
+                id="b-render-back-3d"
+                type="button"
+                className="vc-render-back-3d-btn"
+                onClick={() => onSelectRender(null)}
+              >
+                ✕ Cerrar y volver al diseño 3D
+              </button>
             </div>
           </div>
         </aside>
